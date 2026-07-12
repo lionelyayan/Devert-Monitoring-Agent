@@ -2,6 +2,8 @@ module github.com/devert/monitor-agent
 
 go 1.23
 
+toolchain go1.23.12
+
 require (
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/go-chi/chi/v5 v5.0.12
