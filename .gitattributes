@@ -1,0 +1,23 @@
+# Normalkan line endings ke LF untuk semua file text
+* text=auto eol=lf
+
+# Go source files — selalu LF
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+
+# Config & docs — selalu LF
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.sql text eol=lf
+*.env text eol=lf
+*.sh text eol=lf
+
+# Dockerfile
+Dockerfile text eol=lf
+
+# Binary files — jangan diubah
+*.png binary
+*.jpg binary
+*.gif binary
