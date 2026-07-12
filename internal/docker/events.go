@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/events"
@@ -14,6 +15,30 @@ import (
 	"github.com/devert/monitor-agent/internal/database"
 	"github.com/devert/monitor-agent/internal/webhook"
 )
+
+// errorActions adalah kumpulan Docker action yang dianggap error/critical.
+// Hanya event dengan action ini yang akan dikirim ke n8n webhook.
+var errorActions = map[string]bool{
+	"die":     true, // Container mati (exit code != 0 maupun 0)
+	"oom":     true, // Container kehabisan memori (Out Of Memory)
+	"kill":    true, // Container di-kill paksa
+	"stop":    true, // Container dihentikan
+	"pause":   true, // Container di-pause
+	"destroy": true, // Container dihapus
+}
+
+// isErrorEvent mengembalikan true jika event dianggap error/critical.
+// Khusus untuk health_status, hanya "unhealthy" yang dikirim.
+func isErrorEvent(action, eventType string) bool {
+	if eventType == string(events.ContainerEventType) {
+		// health_status: unhealthy
+		if strings.HasPrefix(action, "health_status") {
+			return strings.Contains(action, "unhealthy")
+		}
+		return errorActions[action]
+	}
+	return false
+}
 
 // DockerEvent is the normalized event structure forwarded to n8n and stored in PostgreSQL.
 type DockerEvent struct {
@@ -126,13 +151,24 @@ func (l *EventListener) handleEvent(ctx context.Context, msg events.Message) {
 		Time:      time.Unix(msg.Time, msg.TimeNano/1e9).In(l.location),
 	}
 
-	log.Info().
+	// Hanya proses event yang termasuk kategori error/critical
+	if !isErrorEvent(evt.Action, evt.EventType) {
+		log.Debug().
+			Str("server", evt.Server).
+			Str("container", evt.Container).
+			Str("action", evt.Action).
+			Str("type", evt.EventType).
+			Msg("docker event: skipped (non-error)")
+		return
+	}
+
+	log.Warn().
 		Str("server", evt.Server).
 		Str("container", evt.Container).
 		Str("image", evt.Image).
 		Str("action", evt.Action).
 		Str("type", evt.EventType).
-		Msg("docker event")
+		Msg("docker event: error/critical detected")
 
 	// Persist to PostgreSQL
 	payload, _ := json.Marshal(evt)
@@ -150,6 +186,11 @@ func (l *EventListener) handleEvent(ctx context.Context, msg events.Message) {
 		log.Error().Err(err).Msg("docker events: failed to persist event")
 	}
 
-	// Forward to n8n asynchronously
+	// Forward to n8n webhook
+	log.Warn().
+		Str("server", evt.Server).
+		Str("container", evt.Container).
+		Str("action", evt.Action).
+		Msg("docker events: forwarding to webhook")
 	l.webhook.Send(evt)
 }
